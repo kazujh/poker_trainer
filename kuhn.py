@@ -8,7 +8,7 @@ class Kuhn:
         self.oppcard = "K"
         self.action_dict = " "
         self.player = Kuhn_Node(self.playercard + self.action_dict, 0, self)
-        self.opponent = Kuhn_Node(self.oppcard + self.action_dict, 1, self)   #test measure  
+        self.opponent = Kuhn_Node(self.oppcard + self.action_dict, 1, self)
         self.player.game = self
         self.opponent.game = self
     
@@ -38,7 +38,12 @@ class Kuhn:
         #4 save regrets in the regret_table
         #5 be able to run another game tree with the new regret_tables for each node, and updated strategies
 
+        #should simulate a single game
+        #if the node is terminal, then I return the node
+        #have self.play only run a single time, since cfr is the one that is going to be initiating the recursion/multiple iterations
         self.play(self.player, self.opponent)
+
+        #access the final node
     
     def showdown(self, history):
         if history[-2:] == "bp":
@@ -68,7 +73,8 @@ class Kuhn:
         #regret = hypothetical rewards - actual reward
         #cfr function has to actually play and then calculate rewards retroactively
 
-
+        #new code
+        
         #code below
         '''move = player.get_move(player.strategy)
         print(f"Player move: {move}")
