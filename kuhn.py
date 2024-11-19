@@ -3,9 +3,9 @@ import numpy as np
 class Kuhn:
     cards = ["J", "Q", "K"]
     def __init__(self):
-        self.playercard = "J"
+        self.playercard = "K"
         self.oppcards = self.cards.copy()
-        self.oppcard = "K"
+        self.oppcard = "J"
         self.action_dict = " "
         self.player = Kuhn_Node(self.playercard + self.action_dict, 0, self)
         self.opponent = Kuhn_Node(self.oppcard + self.action_dict, 1, self)
@@ -41,13 +41,19 @@ class Kuhn:
         #should simulate a single game
         #if the node is terminal, then I return the node
         #have self.play only run a single time, since cfr is the one that is going to be initiating the recursion/multiple iterations
-        self.play(self.player, self.opponent)
-
+        if not self.is_terminal(self.action_dict):
+            self.player = self.play(self.player, self.opponent)
+            self.cfr(self.action_dict)
+        else:
+            #find the regrets of self.player
+            actual_reward = self.showdown(self.action_dict)
+            print(actual_reward)
+            print("Done")
         #access the final node
     
     def showdown(self, history):
         if history[-2:] == "bp":
-            if len(history) == 4:
+            if len(history) == 3:
                 return (2, 0)
             return (0, 1)
         else:
@@ -73,8 +79,10 @@ class Kuhn:
         #regret = hypothetical rewards - actual reward
         #cfr function has to actually play and then calculate rewards retroactively
 
-        #new code
-        
+        #new code for making it only play a single node of the game, and have a way to access the node or the action_dict
+        move = player.get_move(player.strategy)
+        self.action_dict += move
+        return player.children[move]
         #code below
         '''move = player.get_move(player.strategy)
         print(f"Player move: {move}")
@@ -120,6 +128,7 @@ class Kuhn_Node:
         if not self.is_terminal():
             self.bet_node = Kuhn_Node(action_dict + "b", (self.player + 1) % 2, parent_node=self)
             self.pass_node = Kuhn_Node(action_dict + "p", (self.player + 1) % 2, parent_node=self)
+            self.children = {"b": self.bet_node, "p": self.pass_node}
         if self.action_dict != "":
             self.card = self.action_dict[0]
         self.regret_table = {
