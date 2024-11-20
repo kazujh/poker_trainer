@@ -3,7 +3,7 @@ import numpy as np
 class Kuhn:
     cards = ["J", "Q", "K"]
     def __init__(self):
-        self.playercard = "Q"
+        self.playercard = "K"
         self.oppcards = self.cards.copy()
         self.oppcard = "J"
         self.action_dict = " "
@@ -32,7 +32,7 @@ class Kuhn:
         else:
             return False
     
-    def cfr(self, action_dict: str):
+    def cfr(self, action_dict: str, player):
         #1 run a single game tree
         #2 calculate regret for the current node by doing hypothetical rewards - actual rewards
         #3 pass the actual reward up the game tree to calculate regret for higher up nodes
@@ -42,52 +42,55 @@ class Kuhn:
         #should simulate a single game
         #if the node is terminal, then I return the node
         #have self.play only run a single time, since cfr is the one that is going to be initiating the recursion/multiple iterations
-        if not self.is_terminal(self.action_dict):
-            self.player = self.play(self.player, self.opponent)
-            self.cfr(self.action_dict)
-        else:
-            #find the regrets of self.player
+        #need to incorporate reach probability
+        if self.is_terminal(self.action_dict):
             reward_tup = self.showdown(self.action_dict)
-            print(reward_tup)
-            print("Done")
-            print(self.calculate_risk(self.action_dict, reward_tup))
-        #access the final node
+            print(f"Reward_tupe: {reward_tup}")
+            return np.array(self.calculate_regret(self.action_dict, reward_tup))
+        else:
+            next_node = self.move(player, self.opponent)
+            print(f"Current player.regret_table: {player.regret_table}")
+            player.regret_table[self.playercard] += np.flip(self.cfr(self.action_dict, next_node))
+            player.strategy = player.get_strategy(player.regret_table)
+            return player.regret_table[self.playercard]
 
     def calculate_reward(self, reward_tup: tuple):
         reward = reward_tup[0] - reward_tup[1]
         return reward
     
-    def calculate_risk(self, action_dict: str, reward_tup: tuple):
+    def calculate_regret(self, action_dict: str, reward_tup: tuple):
         actual_reward = self.calculate_reward(reward_tup)
         test_action, new_action_dict = action_dict[-1], action_dict[0:len(action_dict)-1]
-        if test_action == "p":
-            hypothetical_reward_tup = self.showdown(new_action_dict + "b")
-        else:
-            hypothetical_reward_tup = self.showdown(new_action_dict + "p")
+        hypothetical_reward_tup = self.showdown(new_action_dict + self.actions[(self.actions.index(test_action) + 1) % 2])
         hypothetical_reward = self.calculate_reward(hypothetical_reward_tup)
-        self.player.parent_node.regret_table[self.playercard][self.actions.index(test_action)] += actual_reward
+        
+        if action_dict[-1:] == "p":
+            return [actual_reward, hypothetical_reward - actual_reward]
+        else:
+            return [hypothetical_reward - actual_reward, actual_reward]
         #need to change this to be more efficient and well-written
         #adds to the current regret table for the node
         #still have not implemented traversing up the game tree to set the regret tables for the other nodes
-        if test_action == "p":
-            self.player.parent_node.regret_table[self.playercard][1] += hypothetical_reward
-        else:
-            self.player.parent_node.regret_table[self.playercard][0] += hypothetical_reward
-        return [actual_reward, hypothetical_reward - actual_reward]
         #this works for one " pbp" but need to bring it up the game tree to find the regrets for other nodes
         #need to pass this into the node so that it sets the values of the node's regrets to it
 
 
-
     def showdown(self, history: str):
         if history[-2:] == "bp":
-            if len(history) == 3:
-                return (2, 0)
+            if len(history) == 4:
+                return (1, 0)
             return (0, 1)
         else:
-            if self.cards.index(self.playercard) > self.cards.index(self.oppcard):
-                return (2, 0)
-            return (0, 1)
+            if history[-2:] =="bb":
+                if self.cards.index(self.playercard) > self.cards.index(self.oppcard):
+                    return (2, 0)
+                else:
+                    return (0, 2)
+            else:
+                if self.cards.index(self.playercard) > self.cards.index(self.oppcard):
+                    return (1, 0)
+                else:
+                    return (0, 1)
     
     """def get_regret(self, player, opponent):
         if player.is_terminal():
@@ -99,7 +102,7 @@ class Kuhn:
             opponent.strategy = opponent.get_strategy(opponent.regretSum)
             return player.regretSum"""
     
-    def play(self, player, opponent):
+    def move(self, player, opponent):
         #still need to code updating the strategies
         #need to somehow figure out communicating between nodes
         #need to not create a new node every time this is run, as to accumulate regrets and strategies
@@ -160,12 +163,11 @@ class Kuhn_Node:
         if self.action_dict != "":
             self.card = self.action_dict[0]
         self.regret_table = {
-            "J":[0.0, 0.0],
-            "Q":[0.0, 0.0],
-            "K":[0.0, 0.0]
+            "J":np.zeros(self.NUM_ACTIONS),
+            "Q":np.zeros(self.NUM_ACTIONS),
+            "K":np.zeros(self.NUM_ACTIONS)
         }
         self.actions = ["p", "b"]
-        self.regretSum = np.zeros(self.NUM_ACTIONS)
         self.strategy = self.get_strategy(self.regret_table)
         self.strategySum = np.zeros(self.NUM_ACTIONS)
         self.reach_prob = 0
@@ -173,9 +175,7 @@ class Kuhn_Node:
     
     def get_strategy(self, regret_sum):
         for i in regret_sum.keys():
-            for a in range(self.NUM_ACTIONS):
-                if regret_sum[i][a] < 0:
-                    regret_sum[i][a] = 0
+            regret_sum[i][regret_sum[i] < 0] = 0
         strategy = regret_sum.copy()
         for i in regret_sum.keys():
             normalizing_sum = sum(regret_sum[i])
