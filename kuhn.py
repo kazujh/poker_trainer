@@ -97,6 +97,45 @@ class CFR_Kuhn:
         for action, node in filter(lambda x: len(x[0]) % 2 == 1, sorted_nodes):
             print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
 
+    def train_player(self):
+        difficulties = {}
+        for action_dict, node in self.nodeMap.items():
+            difficulties[action_dict] = abs(round(node.strategy[0], 2) -  round(node.strategy[1], 2))
+        sorted_difficulties = sorted(difficulties.items(), key=lambda x: x[1], reverse=True)
+        difficulties = {key: value for key, value in filter(lambda d: len(d[0]) % 2 == 0, sorted_difficulties)}
+
+
+        current_difficulty = 1 - max(difficulties.values())
+        games_with_difficulty = [key for key, value in difficulties.items() if value == 1 - current_difficulty]
+        print(games_with_difficulty)
+        playing = True
+
+        cards = ["J", "Q", "K"]
+        moves = {"p": 0, "b": 1}
+
+        correct = False
+        while playing:
+            game_state = np.random.choice(games_with_difficulty)
+            current_node = self.nodeMap[game_state]
+            current_strategies = current_node.strategy
+            print(f"Your card: {cards[int(game_state[0])]}")
+            if len(game_state) > 2:
+                print(f"You passed")
+                print("Opponent bet")
+            move = str(input("What is your next move? (p/b)  "))
+            if current_strategies[moves[move]] >= current_strategies[1 - moves[move]]:
+                print("Correct!")
+                correct = True
+            else:
+                print("incorrect")
+                correct = False
+            if correct:
+                ...
+                #next have to implement giving the player a more/less difficult scenario based on the quality of their answer
+                
+            if str(input("Keep learning? (y/n)  ")).lower() == "n":
+                playing = False
+
     
 class Kuhn_Node:
     def __init__(self, history, parent_node=None, num_actions=2):
