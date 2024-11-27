@@ -1,146 +1,127 @@
 import numpy as np
 
 class CFR_Kuhn:
-    cards = ["J", "Q", "K"]
     def __init__(self):
-        self.playercard = ""
-        self.oppcard = ""
         self.history = ""
         self.actions = ["p", "b"]
+        self.n_actions = 2
+        self.deck = [1, 2, 3]
+        self.cards = ["J", "Q", "K"]
+        self.cards2 = self.cards.copy()
         self.node_map = {}
     
     def get_node(self, history: str, player: int):
-        if history in self.node_map:
-            return self.node_map[history]
+        key = str(player) + history
+        if key in self.node_map:
+            return self.node_map[key]
         else:
-            self.node_map[history] = Kuhn_Node(history, player)
-            return self.node_map[history]
-
-    def deal(self):
-        self.playercard = np.random.choice(self.cards)
-
-        self.oppcards = self.cards.copy()
-        self.oppcards.remove(self.playercard)
-        self.oppcard = np.random.choice(self.oppcards)
-        
-
-        #for debugging
-        '''self.playercard = "K"
-        self.oppcards = "J"'''
+            self.node_map[key] = Kuhn_Node(history)
+            return self.node_map[key]
     
-    def is_terminal(self, action_dict: str):
-        if action_dict[-2:] == "pp" or action_dict[-2:] == "bb" or action_dict[-2:] == "bp":
-            return True
-        else:
-            return False
+    def is_terminal(self, history: str):
+        return history[-2:] in ['bb', 'bp', 'pp']
     
     def cfr(self, history: str, player: int, reach_0, reach_1):
-        #1 recursively run a single game tree
-        #2 calculate reward when a terminal node is reached
-        #3 calculate regret for each other terminal node by doing hypothetical rewards - actual rewards
-        #4 keep track of probability of reaching each specific node (reach_prob)
-        #5 update probabilities according to the chances of making the decision
-        #6 update strategies after the iteration
+        #use the action history to check if the node is terminal
+        playercard = self.deck[0] if player == 0 else self.deck[1]
+        oppcard = self.deck[1] if player == 0 else self.deck[0]
 
-        #use the action history to check if the node is terminal 
+        #if using non-int values for the cards
+        """playercard = self.cards[0] if player == 0 else self.cards[1]
+        oppcard = self.cards[1] if player == 0 else self.cards [0] """
         if self.is_terminal(history):
-            return self.showdown(history)
+            #if using non-int values for the cards
+            """player_val = self.cards2.index(playercard)
+            opp_val = self.cards2.index(oppcard)"""
+            #changed the parameters as well
+            return self.showdown(history, playercard, oppcard)
         
         #determine the reach probabilities from the perspective of the current node
         current_reach = reach_0 if player == 0 else reach_1
         opponent_reach = reach_1 if player == 0 else reach_0
 
         #get the current node and its strategy
-        current_node = self.get_node(history, player)
-        strategy = current_node.get_strategy(current_node.regrets)
-
-        #add to the strategy sums by multiplying the strategy to the reach probability
-        for i in range(len(self.actions)):
-            if player == 0:
-                current_node.strategySum[i] += reach_0 * strategy[i]
-            else:
-                current_node.strategySum[i] += reach_1 * strategy[i]
-
-        #probability of reaching the next node = previous node's chance of picking the current node * current node's chance of picking the next node
-        #so recursively, reach probability = node.strategy[action] * get_reach_probability(next_node)
-        #can pass down the probability of picking the current node by using new_reach_0 and new_reach_1
-        #use the reach probability and multiply it by the utility of the decision to determine the next strategy
-
-        #move = np.random.choice(self.actions, p=strategy)
+        current_node = self.get_node(history, playercard)
+        strategy = current_node.strategy
         
-
-        utilities = np.zeros(len(self.actions))
-        for i, action in enumerate(self.actions):
+        utilities = np.zeros(self.n_actions)
+        for i in range(self.n_actions):
+            new_history = history + self.actions[i]
             if player == 0:
-                new_reach_0 = reach_0 * strategy[i]
-                new_reach_1 = reach_1
+                utilities[i] = -1 * self.cfr(new_history, 1 - player, reach_0 * strategy[i], reach_1)
             else:
-                new_reach_0 = reach_0
-                new_reach_1 = reach_1 * strategy[i]
-            new_history = history + action
-            utilities[i] = -1 * self.cfr(new_history, 1 - player, new_reach_0, new_reach_1)
-    
-        #original method:
-        #expected_value = 0.0
-        #for prob, utility in zip(strategy, utilities):
-        #    expected_value += prob * utility
+                utilities[i] = -1 * self.cfr(new_history, 1 - player, reach_0, reach_1 * strategy[i])
 
-        expected_value = np.sum(strategy * utilities)
+        node_util = sum(strategy * utilities)
 
-        regrets = utilities - expected_value
-        """print(f"regret for {current_node.history}: {regrets}")"""
-        for i in range(len(self.actions)):
-            current_node.regrets[i] += regrets[i] * opponent_reach
+        regrets = utilities - node_util
+
+        current_node.reach_pr += current_reach
+        current_node.regretSum += regrets * opponent_reach
         
+        return node_util
 
-        return expected_value
 
-
-    def showdown(self, history: str):
-        if history[-2:] == "bp":
-            return 1
-        elif history[-2:] == "bb":
-            if self.cards.index(self.playercard) > self.cards.index(self.oppcard):
-                return 2 
+    def showdown(self, history: str, player_val, opp_val):
+        end_pass = history[-1] == "p"
+        double_bet = history[-2:] == "bb"
+        if end_pass:
+            if history[-2:] == "pp":
+                return 1 if player_val > opp_val else -1
             else:
-                return -2
-        elif history[-2:] == "pp":
-            if self.cards.index(self.playercard) > self.cards.index(self.oppcard):
                 return 1
-            else:
-                return -1
+        elif double_bet:
+            return 2 if player_val > opp_val else -2
 
 
     
     def train(self, iterations=100):
         for i in range(iterations):
-            self.deal()
-            history = self.playercard
-            self.cfr(history, 0, 1.0, 1.0)
+            np.random.shuffle(self.deck)
+            np.random.shuffle(self.cards)
+            history = " "
+            self.cfr(history, 0, 1, 1)
+            for _, v in self.node_map.items():
+                v.update_strategy()
 
-        print("===== Strategies =====")
-        for action, node in self.node_map.items():
+                
+
+        print("===== Player Strategies =====")
+        sorted_nodes = sorted(self.node_map.items())
+        for action, node in filter(lambda x: len(x[0]) % 2 == 0, sorted_nodes):
+            print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
+        
+        print()
+
+        print("===== Opponent Strategies =====")
+        for action, node in filter(lambda x: len(x[0]) % 2 == 1, sorted_nodes):
             print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
 
-
+    
 class Kuhn_Node:
-    def __init__(self, history, player, parent_node=None, num_actions=2):
+    def __init__(self, history, parent_node=None, num_actions=2):
         self.NUM_ACTIONS = num_actions 
         self.history = history
         self.game = None
         self.card = history[:1]
-        self.player = player
         self.parent_node = parent_node
         self.bet_node = None
         self.pass_node = None
         self.children = [self.pass_node, self.bet_node]
         
-        self.regrets = np.zeros(self.NUM_ACTIONS)
         self.regretSum = np.zeros(self.NUM_ACTIONS)
         self.actions = ["p", "b"]
-        self.strategy = self.get_strategy(self.regretSum)
+        self.strategy = np.repeat(1/self.NUM_ACTIONS, self.NUM_ACTIONS)
         self.strategySum = np.zeros(self.NUM_ACTIONS)
+        self.reach_pr = 0
+        self.reach_pr_sum = 0
     
+    def update_strategy(self):
+        self.strategySum += self.reach_pr * self.strategy
+        self.reach_pr_sum += self.reach_pr
+        self.strategy = self.get_strategy(self.regretSum)
+        self.reach_pr = 0
+
     def get_strategy(self, regret_sum):
         strategy = np.maximum(regret_sum, 0)
         normalizing_sum = np.sum(strategy)
@@ -161,12 +142,6 @@ class Kuhn_Node:
     def get_move(self, weights):
         return np.random.choice(self.actions, p=weights)
 
-game = CFR_Kuhn()
-game.train(iterations=1000)
-    
-
-
-            
-
-
-
+if __name__ == '__main__':
+    game = CFR_Kuhn()
+    game.train(iterations=10000)
