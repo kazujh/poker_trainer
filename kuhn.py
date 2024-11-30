@@ -1,17 +1,16 @@
 import numpy as np
+import time
 
 class CFR_Kuhn:
     def __init__(self):
         self.history = ""
         self.actions = ["p", "b"]
         self.n_actions = 2
-        self.deck = [1, 2, 3]
-        self.cards = ["J", "Q", "K"]
-        self.cards2 = self.cards.copy()
+        self.deck = [1, 2, 3, 4, 5, 6, 7]
         self.node_map = {}
     
-    def get_node(self, history: str, player: int):
-        key = str(player) + history
+    def get_node(self, history: str, playercard: int):
+        key = str(playercard) + history
         if key in self.node_map:
             return self.node_map[key]
         else:
@@ -26,14 +25,7 @@ class CFR_Kuhn:
         playercard = self.deck[0] if player == 0 else self.deck[1]
         oppcard = self.deck[1] if player == 0 else self.deck[0]
 
-        #if using non-int values for the cards
-        """playercard = self.cards[0] if player == 0 else self.cards[1]
-        oppcard = self.cards[1] if player == 0 else self.cards [0] """
         if self.is_terminal(history):
-            #if using non-int values for the cards
-            """player_val = self.cards2.index(playercard)
-            opp_val = self.cards2.index(oppcard)"""
-            #changed the parameters as well
             return self.showdown(history, playercard, oppcard)
         
         #determine the reach probabilities from the perspective of the current node
@@ -78,7 +70,6 @@ class CFR_Kuhn:
     def train(self, iterations=100):
         for i in range(iterations):
             np.random.shuffle(self.deck)
-            np.random.shuffle(self.cards)
             history = " "
             self.cfr(history, 0, 1, 1)
             for _, v in self.node_map.items():
@@ -96,32 +87,48 @@ class CFR_Kuhn:
         print("===== Opponent Strategies =====")
         for action, node in filter(lambda x: len(x[0]) % 2 == 1, sorted_nodes):
             print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
+        
+        print()
 
     def train_player(self):
-        difficulties = {}
-        for action_dict, node in self.nodeMap.items():
-            difficulties[action_dict] = abs(round(node.strategy[0], 2) -  round(node.strategy[1], 2))
-        sorted_difficulties = sorted(difficulties.items(), key=lambda x: x[1], reverse=True)
-        difficulties = {key: value for key, value in filter(lambda d: len(d[0]) % 2 == 0, sorted_difficulties)}
+        node_difficulties = {}
+        for action_dict, node in self.node_map.items():
+            node_difficulties[action_dict] = abs(round(node.get_average_strategy()[0] -  node.get_average_strategy()[1], 2))
+        print(f"Node difficulties: {node_difficulties}")
+        difficulties = list(set(node_difficulties.values()))
+        difficulties.sort(reverse=True)
+        print(f"difficulties: {difficulties}")
 
 
-        current_difficulty = 1 - max(difficulties.values())
-        games_with_difficulty = [key for key, value in difficulties.items() if value == 1 - current_difficulty]
-        print(games_with_difficulty)
+        moves = {"p": 0, "b": 1}
         playing = True
 
-        cards = ["J", "Q", "K"]
-        moves = {"p": 0, "b": 1}
-
         correct = False
+        #index of the difficulty
+        difficulty_index = 0
         while playing:
+            print(f"difficulty ind: {difficulty_index}")
+            #value of the difficulty
+            current_difficulty = difficulties[difficulty_index]
+            print(f"current_difficulty: {current_difficulty}")
+            #all action_dicts with that value
+            games_with_difficulty = [key for key, value in node_difficulties.items() if value == current_difficulty]
+            print(games_with_difficulty)
+
+
             game_state = np.random.choice(games_with_difficulty)
-            current_node = self.nodeMap[game_state]
-            current_strategies = current_node.strategy
-            print(f"Your card: {cards[int(game_state[0])]}")
-            if len(game_state) > 2:
+            print(game_state)
+            current_node = self.node_map[game_state]
+            current_strategies = current_node.get_average_strategy()
+            print(f"Your card: {int(game_state[0])}")
+            if len(game_state) > 3:
                 print(f"You passed")
                 print("Opponent bet")
+            if len(game_state) == 3:
+                if game_state[2] == 'b':
+                    print(f"Opponent bet")
+                else:
+                    print(f"Opponent passed")
             move = str(input("What is your next move? (p/b)  "))
             if current_strategies[moves[move]] >= current_strategies[1 - moves[move]]:
                 print("Correct!")
@@ -129,11 +136,17 @@ class CFR_Kuhn:
             else:
                 print("incorrect")
                 correct = False
+            
             if correct:
-                ...
+                if difficulty_index < len(difficulties) - 1:
+                    difficulty_index += 1
+            else:
+                if difficulty_index > 0:
+                    difficulty_index -= 1
                 #next have to implement giving the player a more/less difficult scenario based on the quality of their answer
                 
             if str(input("Keep learning? (y/n)  ")).lower() == "n":
+                print(f"final score: {difficulty_index}")
                 playing = False
 
     
@@ -142,7 +155,6 @@ class Kuhn_Node:
         self.NUM_ACTIONS = num_actions 
         self.history = history
         self.game = None
-        self.card = history[:1]
         self.parent_node = parent_node
         self.bet_node = None
         self.pass_node = None
@@ -182,5 +194,8 @@ class Kuhn_Node:
         return np.random.choice(self.actions, p=weights)
 
 if __name__ == '__main__':
+    time1 = time.time()
     game = CFR_Kuhn()
-    game.train(iterations=10000)
+    game.train(iterations=1000000)
+    print(f"run time: {abs(time1 - time.time())}")
+    game.train_player()
