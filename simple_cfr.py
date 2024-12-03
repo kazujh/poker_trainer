@@ -6,7 +6,7 @@ class CFRKuhn:
         self.history = ""
         self.actions = ["p", "b"]
         self.n_actions = 2
-        self.deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 101]
+        self.deck = [1, 2, 3]
         self.node_map = {}
     
     def get_node(self, history: str, playercard: int):
@@ -69,59 +69,12 @@ class CFRKuhn:
 
     
     def train(self, iterations=100):
-        nash_equilibrium = {
-            "1 ": [.80, .20],
-            "1 pb": [1.00, 0.00],
-            "2 ": [1.00, 0.00],
-            "2 pb": [.40, .60],
-            "3 ": [.25, .75],
-            "3 pb": [0.00, 1.00],
-            "1 p": [.67, .33],
-            "1 b": [1.00, 0.00],
-            "2 p": [1.00, 0.00],
-            "2 b": [.67, .33],
-            "3 p": [0.00, 1.00],
-            "3 b": [0.00, 1.00]
-        }
-        #has_converged = False
-        #has_consistently_converged = False
-        #i = 0
-        #while not has_consistently_converged:
         for i in range(iterations):
             np.random.shuffle(self.deck)
             history = " "
             self.cfr(history, 0, 1, 1)
             for _, v in self.node_map.items():
                 v.update_strategy()
-
-            """if i % 10 == 0:
-                converged = True
-                for history, v in self.node_map.items():
-                    if v.get_average_strategy()[0] - .05 < nash_equilibrium[history][0] and nash_equilibrium[history][0] < v.get_average_strategy()[0] + .05:
-                        continue
-                    else:
-                        converged = False
-                if converged:
-                    if has_converged:
-                        has_consistently_converged = True
-                    has_converged = True
-                    print(f"Converged at iteration {i} with strategies:")
-                    print("===== Player Strategies =====")
-                    sorted_nodes = sorted(self.node_map.items())
-                    for action, node in filter(lambda x: len(x[0]) % 2 == 0, sorted_nodes):
-                        print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
-                    
-                    print()
-
-                    print("===== Opponent Strategies =====")
-                    for action, node in filter(lambda x: len(x[0]) % 2 == 1, sorted_nodes):
-                        print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
-                    
-                    print()
-                else:
-                    if has_converged:
-                        has_converged = False
-            i += 1"""
 
 
                 
@@ -247,6 +200,6 @@ class KuhnNode:
 if __name__ == '__main__':
     time1 = time.time()
     game = CFRKuhn()
-    game.train(iterations=250000)
+    game.train(iterations=50000)
     print(f"run time: {abs(time1 - time.time())}")
     #game.train_player()

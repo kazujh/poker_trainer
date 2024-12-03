@@ -1,14 +1,17 @@
 import numpy as np
 import time
 
-class Game:
+class MCCFR:
     def __init__(self):
         self.history = ""
         self.actions = ["p", "b"]
         self.n_actions = 2
-        self.deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 101]
+        self.deck = np.array([1, 2, 3])
         self.node_map = {}
-    
+        
+        self.player = 0
+        self.epsilon = 0.14
+
     def get_node(self, history: str, playercard: int):
         key = str(playercard) + history
         if key in self.node_map:
@@ -20,42 +23,50 @@ class Game:
     def is_terminal(self, history: str):
         return history[-2:] in ['bb', 'bp', 'pp']
     
-    def cfr(self, history: str, player: int, reach_0, reach_1):
+    def cfr(self, history: str, player: int, reach_0, reach_1, sampling_rate):
         #use the action history to check if the node is terminal
         playercard = self.deck[0] if player == 0 else self.deck[1]
         oppcard = self.deck[1] if player == 0 else self.deck[0]
 
         if self.is_terminal(history):
-            return self.showdown(history, playercard, oppcard)
+            reward = self.showdown(history, playercard, oppcard)
+            return reward / sampling_rate, 1
         
-        #determine the reach probabilities from the perspective of the current node
-        current_reach = reach_0 if player == 0 else reach_1
-        opponent_reach = reach_1 if player == 0 else reach_0
-
         #get the current node and its strategy
         current_node = self.get_node(history, playercard)
-        strategy = current_node.strategy
+        strategy = current_node.get_strategy()
+        if player == self.player:
+            probability = self.sample_strategy(strategy)
+        else:
+            probability = current_node.strategy
 
-        next_move = current_node.get_move(strategy)
+        move = current_node.get_move(probability)
         
-        utilities = np.zeros(self.n_actions)
-        for i in range(self.n_actions):
-            new_history = history + self.actions[i]
-            if player == 0:
-                utilities[i] = -1 * self.cfr(new_history, 1 - player, reach_0 * strategy[i], reach_1)
-            else:
-                utilities[i] = -1 * self.cfr(new_history, 1 - player, reach_0, reach_1 * strategy[i])
-
-        node_util = sum(strategy * utilities)
-
-        regrets = utilities - node_util
-
-        current_node.reach_pr += current_reach
-        current_node.regretSum += regrets * opponent_reach
+        new_history = history + self.actions[move]
+        if player == 0:
+            util, p_tail = self.cfr(new_history, 1 - player, reach_0 * current_node.strategy[move], reach_1, sampling_rate * probability[move])
+        else:
+            util, p_tail = self.cfr(new_history, 1 - player, reach_0, reach_1 * current_node.strategy[move], sampling_rate * probability[move])
+        util *= -1
+        #determine the reach probabilities from the perspective of the current node
+        current_reach = reach_0 if player == 1 else reach_1
+        opponent_reach = reach_1 if player == 0 else reach_0
+        if player == self.player:
+            W = util * opponent_reach
+            for a in range(len(strategy)):
+                regret = W * (1.0 - strategy[move]) * p_tail if a == move else -W * strategy[move] * p_tail
+                current_node.regretSum[a] += regret
+        else:
+            for a in range(len(strategy)):
+                current_node.strategySum[a] += (current_reach * current_node.strategy[a]) / sampling_rate
         
-        return node_util
+        return util, p_tail * current_node.strategy[move]
 
-
+    def sample_strategy(self, strategy):
+        for i in range(len(strategy)):
+            strategy[i] = (self.epsilon * np.repeat(1.0 / self.n_actions, self.n_actions)[i] + (1 - self.epsilon) * strategy[i])
+        return strategy
+    
     def showdown(self, history: str, player_val, opp_val):
         end_pass = history[-1] == "p"
         double_bet = history[-2:] == "bb"
@@ -71,59 +82,16 @@ class Game:
 
     
     def train(self, iterations=100):
-        nash_equilibrium = {
-            "1 ": [.80, .20],
-            "1 pb": [1.00, 0.00],
-            "2 ": [1.00, 0.00],
-            "2 pb": [.40, .60],
-            "3 ": [.25, .75],
-            "3 pb": [0.00, 1.00],
-            "1 p": [.67, .33],
-            "1 b": [1.00, 0.00],
-            "2 p": [1.00, 0.00],
-            "2 b": [.67, .33],
-            "3 p": [0.00, 1.00],
-            "3 b": [0.00, 1.00]
-        }
-        #has_converged = False
-        #has_consistently_converged = False
-        #i = 0
-        #while not has_consistently_converged:
         for i in range(iterations):
+            if i == iterations // 2:
+                for _, v in self.node_map.items():
+                    v.strategySum = np.zeros(v.NUM_ACTIONS)
+            
             np.random.shuffle(self.deck)
             history = " "
-            self.cfr(history, 0, 1, 1)
-            for _, v in self.node_map.items():
-                v.update_strategy()
-
-            """if i % 10 == 0:
-                converged = True
-                for history, v in self.node_map.items():
-                    if v.get_average_strategy()[0] - .05 < nash_equilibrium[history][0] and nash_equilibrium[history][0] < v.get_average_strategy()[0] + .05:
-                        continue
-                    else:
-                        converged = False
-                if converged:
-                    if has_converged:
-                        has_consistently_converged = True
-                    has_converged = True
-                    print(f"Converged at iteration {i} with strategies:")
-                    print("===== Player Strategies =====")
-                    sorted_nodes = sorted(self.node_map.items())
-                    for action, node in filter(lambda x: len(x[0]) % 2 == 0, sorted_nodes):
-                        print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
-                    
-                    print()
-
-                    print("===== Opponent Strategies =====")
-                    for action, node in filter(lambda x: len(x[0]) % 2 == 1, sorted_nodes):
-                        print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
-                    
-                    print()
-                else:
-                    if has_converged:
-                        has_converged = False
-            i += 1"""
+            for j in range(2):
+                self.player = j
+                self.cfr(history, 0, 1, 1, 1)
 
 
                 
@@ -141,7 +109,6 @@ class Game:
         
         print()
 
-        return i
 
     def train_player(self):
         node_difficulties = {}
@@ -204,51 +171,45 @@ class Game:
 
     
 class KuhnNode:
-    def __init__(self, history, parent_node=None, num_actions=2):
+    def __init__(self, history, num_actions=2):
         self.NUM_ACTIONS = num_actions 
         self.history = history
         self.game = None
-        self.parent_node = parent_node
-        self.bet_node = None
-        self.pass_node = None
-        self.children = [self.pass_node, self.bet_node]
         
         self.regretSum = np.zeros(self.NUM_ACTIONS)
         self.actions = ["p", "b"]
+        self.moves = np.arange(self.NUM_ACTIONS)
         self.strategy = np.repeat(1/self.NUM_ACTIONS, self.NUM_ACTIONS)
         self.strategySum = np.zeros(self.NUM_ACTIONS)
         self.reach_pr = 0
         self.reach_pr_sum = 0
-    
-    def update_strategy(self):
-        self.strategySum += self.reach_pr * self.strategy
-        self.reach_pr_sum += self.reach_pr
-        self.strategy = self.get_strategy(self.regretSum)
-        self.reach_pr = 0
 
-    def get_strategy(self, regret_sum):
-        strategy = np.maximum(regret_sum, 0)
-        normalizing_sum = np.sum(strategy)
-        for a in range(self.NUM_ACTIONS):
-            if normalizing_sum > 0:
-                strategy[a] /= normalizing_sum
-            else:
-                strategy[a] = 1.0 / self.NUM_ACTIONS
-        return strategy
+    def get_strategy(self):
+        self.strategy = self.regretSum
+        for i in range(len(self.regretSum)):
+            if self.regretSum[i] < 0:
+                self.strategy[i] = 0
+        normalizing_sum = np.sum(self.strategy)
+        if normalizing_sum > 0:
+            self.strategy = self.strategy / normalizing_sum
+        else:
+            self.strategy = np.repeat(1 / self.NUM_ACTIONS, self.NUM_ACTIONS)
+        return self.strategy
     
     def get_average_strategy(self):
-        if sum(self.strategySum) > 0:
-            average_strategy = self.strategySum / sum(self.strategySum)
+        positive_regrets = np.maximum(self.regretSum, 0)
+        normalizing_sum = np.sum(positive_regrets)
+        if normalizing_sum > 0:
+            return positive_regrets / normalizing_sum
         else:
-            average_strategy = np.full(self.NUM_ACTIONS, 1.0 / self.NUM_ACTIONS)
-        return average_strategy
+            return np.full(self.NUM_ACTIONS, 1 / self.NUM_ACTIONS)
     
-    def get_move(self, weights):
-        return np.random.choice(self.actions, p=weights)
+    def get_move(self, strategy):
+        return np.random.choice(self.moves, p=strategy)
 
 if __name__ == '__main__':
     time1 = time.time()
-    game = Game()
-    game.train(iterations=250000)
+    game = MCCFR()
+    game.train(iterations=100000)
     print(f"run time: {abs(time1 - time.time())}")
     #game.train_player()

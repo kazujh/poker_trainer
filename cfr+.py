@@ -6,7 +6,7 @@ class CFRKuhn:
         self.history = ""
         self.actions = ["p", "b"]
         self.n_actions = 2
-        self.deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 101]
+        self.deck = [1, 2, 3]
         self.node_map = {}
     
     def get_node(self, history: str, playercard: int):
