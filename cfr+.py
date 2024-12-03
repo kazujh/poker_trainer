@@ -67,7 +67,7 @@ class CFRKuhn:
             return 2 if player_val > opp_val else -2
 
     
-    def train(self, iterations=100):
+    def train_until_convergence(self, iterations=10000):
         nash_equilibrium = {
             "1 ": [.80, .20],
             "1 pb": [1.00, 0.00],
@@ -82,17 +82,18 @@ class CFRKuhn:
             "3 p": [0.00, 1.00],
             "3 b": [0.00, 1.00]
         }
-        #has_converged = False
-        #i = 0
-        #while not has_converged:
-        for i in range(iterations):
+        has_converged = False
+        has_consistently_converged = False
+        i = 0
+        while not has_consistently_converged:
+        #for i in range(iterations):
             np.random.shuffle(self.deck)
             history = " "
             self.cfr(history, 0, 1, 1)
             for _, node in self.node_map.items():
                 node.update_strategy()
             
-            """if i % 10 == 0:
+            if i % 10 == 0:
                 converged = True
                 for history, v in self.node_map.items():
                     if v.get_average_strategy()[0] - .05 < nash_equilibrium[history][0] and nash_equilibrium[history][0] < v.get_average_strategy()[0] + .05:
@@ -102,6 +103,8 @@ class CFRKuhn:
                 if converged:
                     if has_converged:
                         has_consistently_converged = True
+                    else:
+                        has_consistently_converged = False
                     has_converged = True
                     print(f"Converged at iteration {i} with strategies:")
                     print("===== Player Strategies =====")
@@ -119,9 +122,16 @@ class CFRKuhn:
                 else:
                     if has_converged:
                         has_converged = False
-            i += 1"""
+            i += 1
 
-                
+    def train(self, iterations=10000):
+        for i in range(iterations):
+            np.random.shuffle(self.deck)
+            history = " "
+            self.cfr(history, 0, 1, 1)
+            for _, node in self.node_map.items():
+                node.update_strategy()
+    
         print("Final Strategies:")
         print("===== Player Strategies =====")
         sorted_nodes = sorted(self.node_map.items())
@@ -200,11 +210,6 @@ class KuhnNode:
     def __init__(self, history, parent_node=None, num_actions=2):
         self.NUM_ACTIONS = num_actions 
         self.history = history
-        self.game = None
-        self.parent_node = parent_node
-        self.bet_node = None
-        self.pass_node = None
-        self.children = [self.pass_node, self.bet_node]
         
         self.regretSum = np.zeros(self.NUM_ACTIONS)
         self.actions = ["p", "b"]
@@ -245,4 +250,4 @@ if __name__ == '__main__':
     game = CFRKuhn()
     game.train(iterations=250000)
     print(f"run time: {abs(time1 - time.time())}")
-    #game.train_player()
+    game.train_player()

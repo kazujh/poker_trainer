@@ -6,7 +6,7 @@ class MCCFR:
         self.history = ""
         self.actions = ["p", "b"]
         self.n_actions = 2
-        self.deck = np.array([1, 2, 3])
+        self.deck = np.array([0, 1, 2])
         self.node_map = {}
         
         self.player = 0
@@ -23,7 +23,29 @@ class MCCFR:
     def is_terminal(self, history: str):
         return history[-2:] in ['bb', 'bp', 'pp']
     
-    def cfr(self, history: str, player: int, reach_0, reach_1, sampling_rate):
+    def sample_strategy(self, strategy):
+        for i in range(len(strategy)):
+            strategy[i] = (self.epsilon * np.repeat(1.0 / self.n_actions, self.n_actions)[i] + (1 - self.epsilon) * strategy[i])
+        return strategy
+    
+    def showdown(self, history: str, player_val, opp_val):
+        end_pass = history[-1] == "p"
+        double_bet = history[-2:] == "bb"
+        
+        if end_pass:
+            if history[-2:] == "pp":
+                return 1 if player_val > opp_val else -1
+            else:
+                return 1
+        elif double_bet:
+            return 2 if player_val > opp_val else -2
+
+    def update_epsilon(self, iteration, max_iterations):
+        epsilon_start = .14
+        epsilon_end = .01
+        self.epsilon = epsilon_start - iteration * (epsilon_start - epsilon_end) / max_iterations
+
+    def cfr(self, history: str, player: int, reach_0, reach_1, sampling_rate, weight):
         #use the action history to check if the node is terminal
         playercard = self.deck[0] if player == 0 else self.deck[1]
         oppcard = self.deck[1] if player == 0 else self.deck[0]
@@ -44,9 +66,9 @@ class MCCFR:
         
         new_history = history + self.actions[move]
         if player == 0:
-            util, p_tail = self.cfr(new_history, 1 - player, reach_0 * current_node.strategy[move], reach_1, sampling_rate * probability[move])
+            util, p_tail = self.cfr(new_history, 1 - player, reach_0 * current_node.strategy[move], reach_1, sampling_rate * probability[move], weight)
         else:
-            util, p_tail = self.cfr(new_history, 1 - player, reach_0, reach_1 * current_node.strategy[move], sampling_rate * probability[move])
+            util, p_tail = self.cfr(new_history, 1 - player, reach_0, reach_1 * current_node.strategy[move], sampling_rate * probability[move], weight)
         util *= -1
         #determine the reach probabilities from the perspective of the current node
         current_reach = reach_0 if player == 1 else reach_1
@@ -58,43 +80,131 @@ class MCCFR:
                 current_node.regretSum[a] += regret
         else:
             for a in range(len(strategy)):
-                current_node.strategySum[a] += (current_reach * current_node.strategy[a]) / sampling_rate
+                current_node.strategySum[a] += (weight * current_reach * current_node.strategy[a]) / sampling_rate
         
         return util, p_tail * current_node.strategy[move]
 
-    def sample_strategy(self, strategy):
-        for i in range(len(strategy)):
-            strategy[i] = (self.epsilon * np.repeat(1.0 / self.n_actions, self.n_actions)[i] + (1 - self.epsilon) * strategy[i])
-        return strategy
-    
-    def showdown(self, history: str, player_val, opp_val):
-        end_pass = history[-1] == "p"
-        double_bet = history[-2:] == "bb"
-        
-        if end_pass:
-            if history[-2:] == "pp":
-                return 1 if player_val > opp_val else -1
-            else:
-                return 1
-        elif double_bet:
-            return 2 if player_val > opp_val else -2
+    def calculate_exploitability(self, iterations=10000):
+        best_response_p1 = self.best_response(0, iterations)
+        best_response_p2 = self.best_response(1, iterations)
+        return (best_response_p1 + best_response_p2) / 2
 
+    def best_response(self, player, iterations):
 
-    
-    def train(self, iterations=100):
+        payoff = 0
         for i in range(iterations):
+            np.random.shuffle(self.deck)
+            player_card = self.deck[0] if player == 0 else self.deck[1]
+            opp_card = self.deck[1] if player == 0 else self.deck[0]
+            payoff += self.best_response_utility(" ", player, player_card, opp_card)
+        avg_payoff = payoff / iterations
+        return avg_payoff
+        
+    def best_response_utility(self, history, player, player_card, opp_card):
+        if self.is_terminal(history):
+            return self.showdown(history, player_card, opp_card)
+    
+        current_player = (len(history) - 1) % 2
+        
+        if current_player == player:
+            best_utility = float("-inf")
+
+            for a in self.actions:
+                new_history = history + a
+                utility = self.best_response_utility(new_history, player, player_card, opp_card)
+                best_utility = max(utility, best_utility)
+            return best_utility
+        else:
+            node = self.get_node(history, opp_card)
+            strategy = node.get_average_strategy()
+
+            utility = 0
+            for i, a in enumerate(self.actions):
+                new_history = history + a
+                utility += strategy[i] * self.best_response_utility(new_history, player, player_card, opp_card)
+            return utility
+    
+    def train_until_convergence(self, iterations=10000):
+        nash_equilibrium = {
+            "0 ": [.80, .20],
+            "0 pb": [1.00, 0.00],
+            "1 ": [1.00, 0.00],
+            "1 pb": [.40, .60],
+            "2 ": [.25, .75],
+            "2 pb": [0.00, 1.00],
+            "0 p": [.67, .33],
+            "0 b": [1.00, 0.00],
+            "1 p": [1.00, 0.00],
+            "1 b": [.67, .33],
+            "2 p": [0.00, 1.00],
+            "2 b": [0.00, 1.00]
+        }
+        has_converged = False
+        has_consistently_converged = False
+        i = 0
+        while not has_consistently_converged:
+        #for i in range(iterations):
             if i == iterations // 2:
                 for _, v in self.node_map.items():
                     v.strategySum = np.zeros(v.NUM_ACTIONS)
             
+            if i >= iterations // 2:
+                self.update_epsilon(i, iterations)
+
             np.random.shuffle(self.deck)
             history = " "
             for j in range(2):
                 self.player = j
                 self.cfr(history, 0, 1, 1, 1)
+            if i % 10 == 0:
+                converged = True
+                for history, v in self.node_map.items():
+                    if v.get_average_strategy()[0] - .1 < nash_equilibrium[history][0] and nash_equilibrium[history][0] < v.get_average_strategy()[0] + .1:
+                        continue
+                    else:
+                        converged = False
+                if converged:
+                    if has_converged:
+                        has_consistently_converged = True
+                    else:
+                        has_consistently_converged = False
+                    has_converged = True
+                    if has_consistently_converged:
+                        print(f"Converged at iteration {i} with strategies:")
+                        print("===== Player Strategies =====")
+                        sorted_nodes = sorted(self.node_map.items())
+                        for action, node in filter(lambda x: len(x[0]) % 2 == 0, sorted_nodes):
+                            print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
+                        
+                        print()
+
+                        print("===== Opponent Strategies =====")
+                        for action, node in filter(lambda x: len(x[0]) % 2 == 1, sorted_nodes):
+                            print(f"{action} = [p: {node.get_average_strategy()[0]: .2f}, b: {node.get_average_strategy()[1]: .2f}]")
+                        
+                        print()
+                else:
+                    if has_converged:
+                        has_converged = False
+            i += 1
 
 
-                
+    def train(self, iterations=10000):
+        for i in range(iterations):
+            if i == iterations // 2:
+                for _, v in self.node_map.items():
+                    v.strategySum = np.zeros(v.NUM_ACTIONS)
+            
+            if i >= iterations // 4:
+                self.update_epsilon(i, iterations)
+
+            np.random.shuffle(self.deck)
+            history = " "
+            weight = i + 1
+            for j in range(2):
+                self.player = j
+                self.cfr(history, 0, 1, 1, 1, weight) 
+
         print("Final Strategies:")
         print("===== Player Strategies =====")
         sorted_nodes = sorted(self.node_map.items())
@@ -109,15 +219,15 @@ class MCCFR:
         
         print()
 
+        print(f"epsilon: {self.epsilon}")
+
 
     def train_player(self):
         node_difficulties = {}
         for action_dict, node in self.node_map.items():
             node_difficulties[action_dict] = abs(round(node.get_average_strategy()[0] -  node.get_average_strategy()[1], 2))
-        print(f"Node difficulties: {node_difficulties}")
         difficulties = list(set(node_difficulties.values()))
         difficulties.sort(reverse=True)
-        print(f"difficulties: {difficulties}")
 
 
         moves = {"p": 0, "b": 1}
@@ -127,17 +237,14 @@ class MCCFR:
         #index of the difficulty
         difficulty_index = 0
         while playing:
-            print(f"difficulty ind: {difficulty_index}")
             #value of the difficulty
             current_difficulty = difficulties[difficulty_index]
             print(f"current_difficulty: {current_difficulty}")
             #all action_dicts with that value
             games_with_difficulty = [key for key, value in node_difficulties.items() if value == current_difficulty]
-            print(games_with_difficulty)
 
 
             game_state = np.random.choice(games_with_difficulty)
-            print(game_state)
             current_node = self.node_map[game_state]
             current_strategies = current_node.get_average_strategy()
             print(f"Your card: {int(game_state[0])}")
@@ -150,7 +257,9 @@ class MCCFR:
                 else:
                     print(f"Opponent passed")
             move = str(input("What is your next move? (p/b)  "))
-            if current_strategies[moves[move]] >= current_strategies[1 - moves[move]]:
+            while move != 'p' and move != 'b':
+                move = str(input("Please make a valid move (p/b)  "))
+            if current_strategies[moves[move]] + .05 >= current_strategies[1 - moves[move]] - .05:
                 print("Correct!")
                 correct = True
             else:
@@ -174,7 +283,6 @@ class KuhnNode:
     def __init__(self, history, num_actions=2):
         self.NUM_ACTIONS = num_actions 
         self.history = history
-        self.game = None
         
         self.regretSum = np.zeros(self.NUM_ACTIONS)
         self.actions = ["p", "b"]
@@ -197,12 +305,11 @@ class KuhnNode:
         return self.strategy
     
     def get_average_strategy(self):
-        positive_regrets = np.maximum(self.regretSum, 0)
-        normalizing_sum = np.sum(positive_regrets)
+        normalizing_sum = np.sum(self.strategySum)
         if normalizing_sum > 0:
-            return positive_regrets / normalizing_sum
+            return self.strategySum / normalizing_sum
         else:
-            return np.full(self.NUM_ACTIONS, 1 / self.NUM_ACTIONS)
+            return np.repeat(1 / self.NUM_ACTIONS, self.NUM_ACTIONS)
     
     def get_move(self, strategy):
         return np.random.choice(self.moves, p=strategy)
@@ -212,4 +319,6 @@ if __name__ == '__main__':
     game = MCCFR()
     game.train(iterations=100000)
     print(f"run time: {abs(time1 - time.time())}")
+    print()
     #game.train_player()
+    print(f"exploitability: {game.calculate_exploitability(100000)}")
