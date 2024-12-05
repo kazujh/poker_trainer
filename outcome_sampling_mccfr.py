@@ -124,6 +124,18 @@ class MCCFR:
                 utility += strategy[i] * self.best_response_utility(new_history, player, player_card, opp_card)
             return utility
     
+    def get_worst_node(self, nodes_dict: dict, nodes: list):
+        values = np.zeros(len(nodes))
+        for i, key in enumerate(nodes):
+            values[i] = nodes_dict[key]
+        normalizing_sum = sum(values)
+        probabilities = np.zeros(len(nodes))
+        for i in range(len(nodes)):
+            probabilities[i] = values[i] / normalizing_sum
+        return probabilities
+
+
+
     def train_until_convergence(self, iterations=10000):
         nash_equilibrium = {
             "0 ": [.80, .20],
@@ -204,6 +216,7 @@ class MCCFR:
             for j in range(2):
                 self.player = j
                 self.cfr(history, 0, 1, 1, 1, weight) 
+        exploitability = self.calculate_exploitability(iterations // 10)
 
         print("Final Strategies:")
         print("===== Player Strategies =====")
@@ -220,13 +233,17 @@ class MCCFR:
         print()
 
         print(f"epsilon: {self.epsilon}")
+        print(f"exploitability: {exploitability}")
 
 
     def train_player(self):
         node_difficulties = {}
         for action_dict, node in self.node_map.items():
             node_difficulties[action_dict] = abs(round(node.get_average_strategy()[0] -  node.get_average_strategy()[1], 2))
-        difficulties = list(set(node_difficulties.values()))
+        difficulties = list(node_difficulties.values())
+        for i, difficulty in enumerate(difficulties):
+            difficulties[i] = float(str(difficulty)[:3])
+        difficulties = list(set(difficulties))
         difficulties.sort(reverse=True)
 
 
@@ -235,16 +252,17 @@ class MCCFR:
 
         correct = False
         #index of the difficulty
-        difficulty_index = 0
+        nodeAttempts = {key: 5.0 for key in node_difficulties.keys()}
+        difficulty_index = (len(difficulties) - 1) // 4
         while playing:
             #value of the difficulty
             current_difficulty = difficulties[difficulty_index]
-            print(f"current_difficulty: {current_difficulty}")
+            print(f"current_difficulty: {difficulty_index}")
             #all action_dicts with that value
-            games_with_difficulty = [key for key, value in node_difficulties.items() if value == current_difficulty]
+            games_with_difficulty = [key for key, value in node_difficulties.items() if (value < current_difficulty + .1 and value >= current_difficulty)]
 
-
-            game_state = np.random.choice(games_with_difficulty)
+            weights = self.get_worst_node(nodeAttempts, games_with_difficulty)
+            game_state = np.random.choice(games_with_difficulty, p=weights)
             current_node = self.node_map[game_state]
             current_strategies = current_node.get_average_strategy()
             print(f"Your card: {int(game_state[0])}")
@@ -265,17 +283,23 @@ class MCCFR:
             else:
                 print("incorrect")
                 correct = False
-            
+
+            positive_increment = (len(difficulties) - 1 - difficulty_index) // 2
+            negative_increment = difficulty_index // 2
             if correct:
                 if difficulty_index < len(difficulties) - 1:
-                    difficulty_index += 1
+                    difficulty_index += positive_increment if positive_increment != 0 else 1
+                if nodeAttempts[game_state] > 1:
+                    nodeAttempts[game_state] -= 1
             else:
                 if difficulty_index > 0:
-                    difficulty_index -= 1
+                    difficulty_index -= negative_increment if negative_increment != 0 else 1
+                if nodeAttempts[game_state] < 5:
+                    nodeAttempts[game_state] += 1
                 #next have to implement giving the player a more/less difficult scenario based on the quality of their answer
                 
             if str(input("Keep learning? (y/n)  ")).lower() == "n":
-                print(f"final score: {difficulty_index}")
+                print(f"final score: {difficulty_index} / {len(difficulties) - 1}")
                 playing = False
 
     
@@ -320,5 +344,5 @@ if __name__ == '__main__':
     game.train(iterations=100000)
     print(f"run time: {abs(time1 - time.time())}")
     print()
-    #game.train_player()
-    print(f"exploitability: {game.calculate_exploitability(100000)}")
+    game.train_player()
+    

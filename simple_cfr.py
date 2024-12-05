@@ -66,8 +66,56 @@ class CFRKuhn:
         elif double_bet:
             return 2 if player_val > opp_val else -2
 
-
+    def get_worst_node(self, nodes_dict: dict, nodes: list):
+        values = np.zeros(len(nodes))
+        for i, key in enumerate(nodes):
+            values[i] = nodes_dict[key]
+        normalizing_sum = sum(values)
+        probabilities = np.zeros(len(nodes))
+        for i in range(len(nodes)):
+            probabilities[i] = values[i] / normalizing_sum
+        return probabilities
     
+    def calculate_exploitability(self, iterations=10000):
+        best_response_p1 = self.best_response(0, iterations)
+        best_response_p2 = self.best_response(1, iterations)
+        return (best_response_p1 + best_response_p2) / 2
+
+    def best_response(self, player, iterations):
+
+        payoff = 0
+        for i in range(iterations):
+            np.random.shuffle(self.deck)
+            player_card = self.deck[0] if player == 0 else self.deck[1]
+            opp_card = self.deck[1] if player == 0 else self.deck[0]
+            payoff += self.best_response_utility(" ", player, player_card, opp_card)
+        avg_payoff = payoff / iterations
+        return avg_payoff
+        
+    def best_response_utility(self, history, player, player_card, opp_card):
+        if self.is_terminal(history):
+            return self.showdown(history, player_card, opp_card)
+    
+        current_player = (len(history) - 1) % 2
+        
+        if current_player == player:
+            best_utility = float("-inf")
+
+            for a in self.actions:
+                new_history = history + a
+                utility = self.best_response_utility(new_history, player, player_card, opp_card)
+                best_utility = max(utility, best_utility)
+            return best_utility
+        else:
+            node = self.get_node(history, opp_card)
+            strategy = node.get_average_strategy()
+
+            utility = 0
+            for i, a in enumerate(self.actions):
+                new_history = history + a
+                utility += strategy[i] * self.best_response_utility(new_history, player, player_card, opp_card)
+            return utility
+        
     def train_until_convergence(self, iterations=10000):
         nash_equilibrium = {
             "1 ": [.80, .20],
@@ -134,6 +182,8 @@ class CFRKuhn:
             for _, node in self.node_map.items():
                 node.update_strategy()
         
+        exploitability = self.calculate_exploitability(iterations // 10)
+        
         print("Final Strategies:")
         print("===== Player Strategies =====")
         sorted_nodes = sorted(self.node_map.items())
@@ -148,15 +198,18 @@ class CFRKuhn:
         
         print()
 
+        print(f"exploitability: {exploitability}")
+
 
     def train_player(self):
         node_difficulties = {}
         for action_dict, node in self.node_map.items():
             node_difficulties[action_dict] = abs(round(node.get_average_strategy()[0] -  node.get_average_strategy()[1], 2))
-        print(f"Node difficulties: {node_difficulties}")
-        difficulties = list(set(node_difficulties.values()))
+        difficulties = list(node_difficulties.values())
+        for i, difficulty in enumerate(difficulties):
+            difficulties[i] = float(str(difficulty)[:3])
+        difficulties = list(set(difficulties))
         difficulties.sort(reverse=True)
-        print(f"difficulties: {difficulties}")
 
 
         moves = {"p": 0, "b": 1}
@@ -164,19 +217,17 @@ class CFRKuhn:
 
         correct = False
         #index of the difficulty
-        difficulty_index = 0
+        nodeAttempts = {key: 5.0 for key in node_difficulties.keys()}
+        difficulty_index = (len(difficulties) - 1) // 4
         while playing:
-            print(f"difficulty ind: {difficulty_index}")
             #value of the difficulty
             current_difficulty = difficulties[difficulty_index]
-            print(f"current_difficulty: {current_difficulty}")
+            print(f"current_difficulty: {difficulty_index}")
             #all action_dicts with that value
-            games_with_difficulty = [key for key, value in node_difficulties.items() if value == current_difficulty]
-            print(games_with_difficulty)
+            games_with_difficulty = [key for key, value in node_difficulties.items() if (value < current_difficulty + .1 and value >= current_difficulty)]
 
-
-            game_state = np.random.choice(games_with_difficulty)
-            print(game_state)
+            weights = self.get_worst_node(nodeAttempts, games_with_difficulty)
+            game_state = np.random.choice(games_with_difficulty, p=weights)
             current_node = self.node_map[game_state]
             current_strategies = current_node.get_average_strategy()
             print(f"Your card: {int(game_state[0])}")
@@ -189,23 +240,31 @@ class CFRKuhn:
                 else:
                     print(f"Opponent passed")
             move = str(input("What is your next move? (p/b)  "))
-            if current_strategies[moves[move]] >= current_strategies[1 - moves[move]]:
+            while move != 'p' and move != 'b':
+                move = str(input("Please make a valid move (p/b)  "))
+            if current_strategies[moves[move]] + .05 >= current_strategies[1 - moves[move]] - .05:
                 print("Correct!")
                 correct = True
             else:
                 print("incorrect")
                 correct = False
-            
+
+            positive_increment = (len(difficulties) - 1 - difficulty_index) // 2
+            negative_increment = difficulty_index // 2
             if correct:
                 if difficulty_index < len(difficulties) - 1:
-                    difficulty_index += 1
+                    difficulty_index += positive_increment if positive_increment != 0 else 1
+                if nodeAttempts[game_state] > 1:
+                    nodeAttempts[game_state] -= 1
             else:
                 if difficulty_index > 0:
-                    difficulty_index -= 1
+                    difficulty_index -= negative_increment if negative_increment != 0 else 1
+                if nodeAttempts[game_state] < 5:
+                    nodeAttempts[game_state] += 1
                 #next have to implement giving the player a more/less difficult scenario based on the quality of their answer
                 
             if str(input("Keep learning? (y/n)  ")).lower() == "n":
-                print(f"final score: {difficulty_index}")
+                print(f"final score: {difficulty_index} / {len(difficulties) - 1}")
                 playing = False
 
     
@@ -252,4 +311,4 @@ if __name__ == '__main__':
     game = CFRKuhn()
     game.train(iterations=100000)
     print(f"run time: {abs(time1 - time.time())}")
-    #game.train_player()
+    game.train_player()
