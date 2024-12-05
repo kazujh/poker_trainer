@@ -70,7 +70,6 @@ class MCCFR:
         else:
             util, p_tail = self.cfr(new_history, 1 - player, reach_0, reach_1 * current_node.strategy[move], sampling_rate * probability[move], weight)
         util *= -1
-        #determine the reach probabilities from the perspective of the current node
         current_reach = reach_0 if player == 1 else reach_1
         opponent_reach = reach_1 if player == 0 else reach_0
         if player == self.player:
